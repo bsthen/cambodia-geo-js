@@ -47,7 +47,7 @@ every call returns a fresh list. Language idiom applies to names (`get_province`
 
 A *query* is a code, a Khmer name, an English name, or a record returned by the library
 (a record of the right level is used as is; a record of another level matches nothing).
-A query given as a number must be a non-negative integer; any other type matches nothing (null / `[]`).
+A query given as a number must be a non-negative integer; any other type (float, boolean, array, object of another class, null) matches nothing (null / `[]`).
 
 **Normalisation of names** (both the query and the data): Unicode NFC, remove all whitespace, remove
 the characters U+200B, U+200C, U+200D, U+2060, U+FEFF and `- ' ’ . ,`, then lowercase.
@@ -77,6 +77,31 @@ commune, village; data order inside a level) compute a rank:
 2 if a name contains the query; otherwise skip it. Sort by (rank, level, data position) and apply `limit`.
 `level` restricts the search to one level. An invalid `level` or a negative `limit` is an error
 (`ValueError` / `RangeError`).
+
+## Language bindings
+
+The behaviour is identical; only the idiom differs.
+
+| Canonical | Python | JavaScript | PHP |
+|---|---|---|---|
+| package | `cambodia-geo` (PyPI) | `cambodia-geo` (npm) | `bsthen/cambodia-geo` (Packagist) |
+| entry point | module `cambodia_geo` | `import ... from 'cambodia-geo'` | static methods of `CambodiaGeo\Geo` |
+| `provinces` | `provinces()` | `provinces()` | `Geo::provinces()` |
+| `districts` | `districts(province)` | `districts(province)` | `Geo::districts($province)` |
+| `communes` | `communes(province, district)` | `communes(province, district)` | `Geo::communes($province, $district)` |
+| `villages` | `villages(province, district, commune)` | `villages(province, district, commune)` | `Geo::villages($province, $district, $commune)` |
+| `get_province` | `get_province(query)` | `getProvince(query)` | `Geo::getProvince($query)` |
+| `get_district` | `get_district(query, province=)` | `getDistrict(query, { province })` | `Geo::getDistrict($query, province: )` |
+| `get_commune` | `get_commune(query, district=, province=)` | `getCommune(query, { district, province })` | `Geo::getCommune($query, district: , province: )` |
+| `get_village` | `get_village(query, commune=, district=, province=)` | `getVillage(query, { commune, district, province })` | `Geo::getVillage($query, commune: , district: , province: )` |
+| `search` | `search(query, level=, limit=)` | `search(query, { level, limit })` | `Geo::search($query, level: , limit: )` |
+| not found | `None` | `null` | `null` |
+| record fields | `name_kh`, `province_code` | `nameKh`, `provinceCode` | `$nameKh`, `$provinceCode` |
+| canonical form | `record.to_dict()` | `toDict(record)` | `$record->toArray()` (also `json_encode`) |
+| data year | `DATA_YEAR` | `DATA_YEAR` | `Geo::DATA_YEAR` |
+| package version | `__version__` | `VERSION` | `Geo::version()` |
+| invalid `level` / negative `limit` | `ValueError` | `RangeError` | `InvalidArgumentException` |
+| `limit` default / unlimited | `50` / `None` | `50` / `null` | `50` / `null` |
 
 ## Known quirks of the MEF 2025 data (reproduced as published, do not "fix" them)
 
