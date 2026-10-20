@@ -1,0 +1,119 @@
+name: Publish to npm
+
+# Every push to main: if the version in package.json has no tag yet,
+# test -> build -> pack + smoke test -> publish to npm -> create tag + GitHub Release (v<version>).
+# If the version is unchanged, nothing is published.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: v
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists -> nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New version v$VERSION -> releasing."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run lint:package
+      - name: Pack the tarball that will be published
+        run: npm pack
+      - name: Smoke-test the tarball in a clean project (ESM + CommonJS)
+        run: node scripts/smoke.mjs ./cambodia-geo-${{ needs.check.outputs.version }}.tgz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package
+          path: cambodia-geo-*.tgz
+          if-no-files-found: error
+
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/cambodia-geo
+    permissions:
+      id-token: write # npm Trusted Publishing (OIDC): no npm token is stored anywhere
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Make sure npm supports trusted publishing (needs npm >= 11.5.1)
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
+      - uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: .
+      - name: Publish (skipped if this version already exists on npm)
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          if npm view "cambodia-geo@$VERSION" version >/dev/null 2>&1; then
+            echo "cambodia-geo@$VERSION is already on npm -> skipping publish."
+          else
+            npm publish "./cambodia-geo-$VERSION.tgz" --access public --provenance
+          fi
+
+  release:
+    needs: [check, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag and the GitHub Release
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: .
+      - name: Create tag and GitHub Release
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists."
+          else
+            gh release create "v$VERSION" cambodia-geo-*.tgz \
+              --target "$GITHUB_SHA" \
+              --title "v$VERSION" \
+              --generate-notes
+          fi
